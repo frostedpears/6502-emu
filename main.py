@@ -1,17 +1,17 @@
 import emu6502 as emu
-import numpy as np
 import monitor as mon
 
 dd63 = '''
-;TYA
-;PHA
-;TXA
-;PHA
+TYA
+PHA
+TXA
+PHA
 LDA $31
 STA $33
 LDA $32
 STA $34
 '''
+
 dd63_2 = '''
 JSR $DDA2
 JSR $DDA2
@@ -29,19 +29,19 @@ LDY #$07
 JSR $DDA2
 JSR $DDAD
 DEY
-BNE $DD8C
+BNE $F7
 '''
 
 dd63_3 = '''
 INC $31
-;BNE $DD9B
-;INC $32
+BNE $02
+INC $32
 PLA
 TAX
 PLA
 TAY
 LDA $32
-;RTS
+RTS
 '''
 
 dda2 = '''
@@ -51,7 +51,7 @@ STA $33
 LDA $34 
 ROL A 
 STA $34 
-;RTS 
+RTS 
 '''
 
 ddad = '''
@@ -62,7 +62,7 @@ STA $31
 LDA $34 
 ADC $32 
 STA $32 
-;RTS 
+RTS 
 '''
 
 def main():
@@ -86,7 +86,7 @@ def main():
         e.run(dda2)
         e.run(ddad)
     e.run(dd63_3)
-    # mon.printFlags(e)
+    mon.printFlags(e)
     mon.printRegisters(e)
     mon.printRange(e, 0x31, 0x35)
     return

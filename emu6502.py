@@ -1,58 +1,40 @@
 import interpreter as it
 from interpreter import m
 import numpy as np
-import re
+import monitor as mon
 
 class Flags(object):
     # processor flags
-    NEGATIVE = 128
-    OVERFLOW = 64
-    UNUSED = 32
-    BREAK = 16
-    DECIMAL = 8
-    INTERRUPT = 4
-    ZERO = 2
-    CARRY = 1
+    NEG = 128 # NEGATIVE
+    OVR = 64  # OVERFLOW
+    UND = 32  # UNUSED
+    BRK = 16  # BREAK
+    DEC = 8   # DECIMAL
+    INT = 4   # INTERRUPT
+    ZER = 2   # ZERO
+    CAR = 1   # CARRY
 
 class emu6502():
     def __init__(self):
-        # settings
-        self.verbose = False
-
         # registers
-        self.a = np.uint8(0x00) # accumulator
-        self.x = np.uint8(0x00) # x register
-        self.y = np.uint8(0x00) # y register
-        self.cc = np.uint8(0x00) # condition code register
+        self.a = np.uint8(0x00)     # accumulator
+        self.x = np.uint8(0x00)     # x register
+        self.y = np.uint8(0x00)     # y register
 
         self.pc = np.uint16(0x2000) # program counter
-        self.sp = np.uint8(0xFF) # stack pointer
+        self.sr = np.uint8(0x00)    # status register (flags)
+        self.sp = np.uint8(0xFF)    # stack pointer
 
         self.memory = np.zeros(0x4000, dtype=np.uint8)
 
 # ------------------------ functions ------------------------
     def run(self, string):
-        stringLines = re.split('\n', string)
-        for line in stringLines:
-            if (line.startswith(';') or len(line) == 0):
-                continue
-            mode, opcode, arg8, arg16 = it.parseLine(line)
-            if (self.verbose):
-                print (opcode + ' ' + str(mode) + ' ' + '{:02X}'.format(arg8) + ' ' + '{:02X}'.format(arg16))
-            try:
-                self.runLine(mode, opcode, arg8, arg16,)
-            except:
-                pass
+        commands = it.parseAsm(string)
+        mon.printByteList(commands)
+
         return
     
-    def runLine(self, mode, opcode, arg8, arg16):
-        if (opcode == 'lda' and mode == m.ZP):
-            hexByte = '{:02X}'.format(it.getByteCode(mode, opcode))
-            eval('self.c' + hexByte + '(mode, opcode, arg8, arg16)')
-        elif (opcode):
-            code = eval('self.' + opcode.upper() + '(mode, opcode, arg8, arg16)')
-            if (code == 1 and self.verbose == True):
-                print('not run: ' + self.getAsmLine(mode, opcode, arg8, arg16))
+    def runLine(self, opcode, lowByte, highByte):
         return
     
     # ------------ getters / setters ------------
@@ -85,20 +67,20 @@ class emu6502():
 # ----------------------------------------------------------
 
 # ------------ Logical and arithmetic commands -------------
-    def ORA(self, mode, opcode, arg8, arg16):
+    def ORA(self, opcode, lowByte, highByte):
         return
 
-    def AND(self, mode, opcode, arg8, arg16):
+    def AND(self, opcode, lowByte, highByte):
         return
 
-    def EOR(self, mode, opcode, arg8, arg16):
+    def EOR(self, opcode, lowByte, highByte):
         return
 
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # ADC --- $69 $65 $75 --- $61 $71 $6D $7D $79 --- ---
     # Flags: N Z
-    def ADC(self, mode, opcode, arg8, arg16):
-        carry = 1 if (self.cc & Flags.CARRY == Flags.CARRY) else 0
+    def ADC(self, opcode, lowByte, highByte):
+        carry = self.sr & Flags.CAR == Flags.CAR
 
         # get value based on mode
         value = np.uint8(0x00)
@@ -114,34 +96,34 @@ class emu6502():
         
         # set carry flag
         if (sum & 0x100):
-            self.cc = self.cc | Flags.CARRY
+            self.sr = self.sr | Flags.CAR
 
         # store sum
         self.setRegister('a', sum)
         return 0
 
-    def SBC(self, mode, opcode, arg8, arg16):
+    def SBC(self, opcode, lowByte, highByte):
         return 1
 
-    def CMP(self, mode, opcode, arg8, arg16):
+    def CMP(self, opcode, lowByte, highByte):
         return 1
 
-    def CPX(self, mode, opcode, arg8, arg16):
+    def CPX(self, opcode, lowByte, highByte):
         return 1
 
-    def CPY(self, mode, opcode, arg8, arg16):
+    def CPY(self, opcode, lowByte, highByte):
         return 1
 
-    def DEC(self, mode, opcode, arg8, arg16):
+    def DEC(self, opcode, lowByte, highByte):
         return 1
 
-    def DEX(self, mode, opcode, arg8, arg16):
+    def DEX(self, opcode, lowByte, highByte):
         return 1
 
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # DEY $88 --- --- --- --- --- --- --- --- --- --- ---
     # Flags: N,Z
-    def DEY(self, mode, opcode, arg8, arg16):
+    def DEY(self, opcode, lowByte, highByte):
         value = self.y - 1
         self.setRegister('y', value)
         return 0
@@ -149,7 +131,7 @@ class emu6502():
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # INC --- --- $E6 $F6 --- --- --- $EE $FE --- --- ---
     # Flags: N,Z
-    def INC(self, mode, opcode, arg8, arg16):
+    def INC(self, opcode, lowByte, highByte):
         if (mode == m.ZP):
             value = self.getByte(arg8)
             value = value + 1
@@ -157,23 +139,23 @@ class emu6502():
             self.setByte(value, arg8)
         return 0
     
-    def INX(self, mode, opcode, arg8, arg16):
+    def INX(self, opcode, lowByte, highByte):
         return 1
 
-    def INY(self, mode, opcode, arg8, arg16):
+    def INY(self, opcode, lowByte, highByte):
         return 1
 
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # ASL $0A --- $06 $16 --- --- --- $0E $1E --- --- ---
     # Flags: N,Z,C
-    def ASL(self, mode, opcode, arg8, arg16):
+    def ASL(self, opcode, lowByte, highByte):
         if (mode == m.IMP):
             value = int(self.a)
             value = value << 1
             if (value > 0xFF):
-                self.cc = self.cc | Flags.CARRY
+                self.sr = self.sr | Flags.CAR
             else:
-                self.cc = self.cc & ~Flags.CARRY
+                self.sr = self.sr & ~Flags.CAR
             value = value & 0xFF
             self.setRegister('a', value)
         else:
@@ -183,26 +165,26 @@ class emu6502():
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # ROL $2A --- $26 $36 --- --- --- $2E $3E --- --- ---
     # Flags: N,Z,C
-    def ROL(self, mode, opcode, arg8, arg16):
-        carry = 1 if (self.cc & Flags.CARRY == Flags.CARRY) else 0
+    def ROL(self, opcode, lowByte, highByte):
+        carry = self.sr & Flags.CAR == Flags.CAR
         if (mode == m.IMP):
             value = int(self.a)
             value = value << 1
             value = value + carry
             if (value > 0xFF):
-                self.cc = self.cc | Flags.CARRY
+                self.sr = self.sr | Flags.CAR
             else:
-                self.cc = self.cc & ~Flags.CARRY
+                self.sr = self.sr & ~Flags.CAR
             value = value & 0xFF
             self.setRegister('a', value)
         else:
             return 1
         return 0
 
-    def LSR(self, mode, opcode, arg8, arg16):
+    def LSR(self, opcode, lowByte, highByte):
         return 1
 
-    def ROR(self, mode, opcode, arg8, arg16):
+    def ROR(self, opcode, lowByte, highByte):
         return 1
 
 # --------------------- Move commands ----------------------
@@ -210,7 +192,7 @@ class emu6502():
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # LDA --- $A9 $A5 $B5 --- $A1 $B1 $AD $BD $B9 --- ---
     # Flags: N,Z
-    def LDA(self, mode, opcode, arg8, arg16):
+    def LDA(self, opcode, lowByte, highByte):
         # get value based on mode
         value = np.uint8(0x00)
         if (mode == m.IMM):
@@ -225,21 +207,21 @@ class emu6502():
         return 0
 
     # LDA - IMM
-    def cA9(self, mode, opcode, arg8, arg16):
-        value = arg8
+    def cA9(self, opcode, lowByte, highByte):
+        value = lowByte
         self.setRegister('a', value)
         return 0
 
     # LDA - ZP
-    def cA5(self, mode, opcode, arg8, arg16):
-        value = self.getByte(arg8)
+    def cA5(self, opcode, lowByte, highByte):
+        value = self.getByte(lowByte)
         self.setRegister('a', value)
         return 0
 
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # STA --- --- $85 $95 --- $81 $91 $8D $9D $99 --- ---
     # Flags: None
-    def STA(self, mode, opcode, arg8, arg16):
+    def STA(self, opcode, lowByte, highByte):
         value = self.a
 
         # get address based on mode
@@ -252,16 +234,16 @@ class emu6502():
         self.setByte(value, address)
         return 0
 
-    def LDX(self, mode, opcode, arg8, arg16):
+    def LDX(self, opcode, lowByte, highByte):
         return 1
 
-    def STX(self, mode, opcode, arg8, arg16):
+    def STX(self, opcode, lowByte, highByte):
         return 1
 
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # LDY --- $A0 $A4 $B4 --- --- --- $AC $BC --- --- ---
     # Flags: N,Z
-    def LDY(self, mode, opcode, arg8, arg16):
+    def LDY(self, opcode, lowByte, highByte):
         # get value based on mode
         value = np.uint8(0x00)
         if (mode == m.IMM):
@@ -275,108 +257,108 @@ class emu6502():
         self.setRegister('y', value)
         return 0
 
-    def STY(self, mode, opcode, arg8, arg16):
+    def STY(self, opcode, lowByte, highByte):
         return 1
 
-    def TAX(self, mode, opcode, arg8, arg16):
+    def TAX(self, opcode, lowByte, highByte):
         return 1
 
-    def TXA(self, mode, opcode, arg8, arg16):
+    def TXA(self, opcode, lowByte, highByte):
         return 1
 
-    def TAY(self, mode, opcode, arg8, arg16):
+    def TAY(self, opcode, lowByte, highByte):
         return 1
 
-    def TYA(self, mode, opcode, arg8, arg16):
+    def TYA(self, opcode, lowByte, highByte):
         return 1
 
-    def TSX(self, mode, opcode, arg8, arg16):
+    def TSX(self, opcode, lowByte, highByte):
         return 1
 
-    def TXS(self, mode, opcode, arg8, arg16):
+    def TXS(self, opcode, lowByte, highByte):
         return 1
 
-    def PLA(self, mode, opcode, arg8, arg16):
+    def PLA(self, opcode, lowByte, highByte):
         return 1
 
-    def PHA(self, mode, opcode, arg8, arg16):
+    def PHA(self, opcode, lowByte, highByte):
         return 1
 
-    def PLP(self, mode, opcode, arg8, arg16):
+    def PLP(self, opcode, lowByte, highByte):
         return 1
 
-    def PHP(self, mode, opcode, arg8, arg16):
+    def PHP(self, opcode, lowByte, highByte):
         return 1
 
 # ------------------- Jump/Flag commands -------------------
 
-    def BPL(self, mode, opcode, arg8, arg16):
+    def BPL(self, opcode, lowByte, highByte):
         return 1
 
-    def BMI(self, mode, opcode, arg8, arg16):
+    def BMI(self, opcode, lowByte, highByte):
         return 1
 
-    def BVC(self, mode, opcode, arg8, arg16):
+    def BVC(self, opcode, lowByte, highByte):
         return 1
 
-    def BVS(self, mode, opcode, arg8, arg16):
+    def BVS(self, opcode, lowByte, highByte):
         return 1
 
-    def BCC(self, mode, opcode, arg8, arg16):
+    def BCC(self, opcode, lowByte, highByte):
         return 1
 
-    def BCS(self, mode, opcode, arg8, arg16):
+    def BCS(self, opcode, lowByte, highByte):
         return 1
 
-    def BNE(self, mode, opcode, arg8, arg16):
+    def BNE(self, opcode, lowByte, highByte):
         return 1
 
-    def BEQ(self, mode, opcode, arg8, arg16):
+    def BEQ(self, opcode, lowByte, highByte):
         return 1
 
-    def BRK(self, mode, opcode, arg8, arg16):
+    def BRK(self, opcode, lowByte, highByte):
         return 1
 
-    def RTI(self, mode, opcode, arg8, arg16):
+    def RTI(self, opcode, lowByte, highByte):
         return 1
 
-    def JSR(self, mode, opcode, arg8, arg16):
+    def JSR(self, opcode, lowByte, highByte):
         return 1
 
-    def RTS(self, mode, opcode, arg8, arg16):
+    def RTS(self, opcode, lowByte, highByte):
         return 1
 
-    def JMP(self, mode, opcode, arg8, arg16):
+    def JMP(self, opcode, lowByte, highByte):
         return 1
 
-    def BIT(self, mode, opcode, arg8, arg16):
+    def BIT(self, opcode, lowByte, highByte):
         return 1
 
     # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
     # CLC $18 --- --- --- --- --- --- --- --- --- --- ---
     # Flags: C
-    def CLC(self, mode, opcode, arg8, arg16):
-        self.cc = self.cc & ~Flags.CARRY
+    def CLC(self, opcode, lowByte, highByte):
+        self.sr = self.sr & ~Flags.CAR
         return 0
 
-    def SEC(self, mode, opcode, arg8, arg16):
+    def SEC(self, opcode, lowByte, highByte):
         return 1
 
-    def CLD(self, mode, opcode, arg8, arg16):
+    def CLD(self, opcode, lowByte, highByte):
         return 1
 
-    def SED(self, mode, opcode, arg8, arg16):
+    def SED(self, opcode, lowByte, highByte):
         return 1
 
-    def CLI(self, mode, opcode, arg8, arg16):
+    def CLI(self, opcode, lowByte, highByte):
         return 1
 
-    def SEI(self, mode, opcode, arg8, arg16):
+    def SEI(self, opcode, lowByte, highByte):
         return 1
 
-    def CLV(self, mode, opcode, arg8, arg16):
+    def CLV(self, opcode, lowByte, highByte):
         return 1
 
-    def NOP(self, mode, opcode, arg8, arg16):
+    def NOP(self, opcode, lowByte, highByte):
         return 1
 

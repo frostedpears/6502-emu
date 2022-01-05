@@ -17,8 +17,15 @@ def printRegisters(emu):
     return
 
 def printFlags(emu):
-    print('NVUBDIZC')
-    print('{:08b}'.format(emu.cc))
+    flagsString = '{:08b}'.format(emu.sr)
+    print('N V U B D I Z C')
+    print(' '.join(flagsString))
+    return
+
+def printByteList(bytes):
+    for b in bytes:
+        print('{:02X}'.format(b), end=' ')
+    print()
     return
 
 # TODO add logic to create proper syntax

@@ -30,6 +30,10 @@ class bl(object):
     IND = 3  # 'indirect'     - ($4400)
     REL = 2  # 'relative'     - $44
 
+relativeCodes = [
+    'bpl', 'bmi', 'bvc', 'bvs', 'bcc', 'bcs', 'bne', 'beq'
+]
+
 # ------------------------------------------------
 # -----------------  byte codes  -----------------
 # ------------------------------------------------
@@ -234,28 +238,28 @@ byteCodes = {
     },
     # ------------ jump/flag commands ------------
     'bpl': {
-        m.ZP: 0x10, # REL
+        m.REL: 0x10,
     },
     'bmi': {
-        m.ZP: 0x30, # REL
+        m.REL: 0x30,
     },
     'bvc': {
-        m.ZP: 0x50, # REL
+        m.REL: 0x50,
     },
     'bvs': {
-        m.ZP: 0x70, # REL
+        m.REL: 0x70,
     },
     'bcc': {
-        m.ZP: 0x90, # REL
+        m.REL: 0x90,
     },
     'bcs': {
-        m.ZP: 0xb0, # REL
+        m.REL: 0xb0,
     },
     'bne': {
-        m.ZP: 0xd0, # REL
+        m.REL: 0xd0,
     },
     'beq': {
-        m.ZP: 0xf0, # REL
+        m.REL: 0xf0,
     },
     'brk': {
         m.IMP: 0x00,
