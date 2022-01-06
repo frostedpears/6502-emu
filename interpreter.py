@@ -50,8 +50,8 @@ def asmToOpcode(string):
     rxDouble = '\w{4}'
     doubleMatch = re.search(rxDouble, argsString)
     if (doubleMatch):
-        lowByte = int(doubleMatch.group()[0:2], 16)
-        highByte = int(doubleMatch.group()[2:4], 16)
+        lowByte = int(doubleMatch.group()[2:4], 16)
+        highByte = int(doubleMatch.group()[0:2], 16)
     else:
         rxSingle = '\w{2}'
         singleMatch = re.search(rxSingle, argsString)
@@ -107,7 +107,7 @@ def asmToOpcode(string):
 def getOpcode(instruction, mode, lowByte, highByte):
     byteList = []
     if (instruction != None and mode != None):
-        byteList.append(np.uint8(ot.byteCodes[instruction][mode]))
+        byteList.append(np.uint8(ot.opCodes[instruction][mode]))
         if (lowByte != None):
             byteList.append(np.uint8(lowByte))
             if (highByte != None):

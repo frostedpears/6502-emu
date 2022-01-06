@@ -1,7 +1,16 @@
+import numpy as np
+x = np.uint8(0xf7)
+y = np.int8(x)
+print('{:02x}'.format(x))
+print(y)
+
+
+
+
+"""
 from blessed import Terminal
 
 term = Terminal()
-"""
 print(term.home + term.clear + term.move_y(term.height // 2))
 print(term.black_on_darkkhaki(term.center('press any key to continue.')))
 
@@ -9,7 +18,6 @@ with term.cbreak(), term.hidden_cursor():
     inp = term.inkey()
 
 print(term.move_down(2) + 'You pressed ' + term.bold(repr(inp)))
-"""
 
 def changeColor(number):
     number = number % 3
@@ -36,3 +44,4 @@ for m in range(0,10):
         x = x + 3
 print(term.normal)
 
+"""
