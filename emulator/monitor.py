@@ -1,4 +1,5 @@
-from opTable import m
+import emulator.opTable as ot
+from emulator.opTable import MODE
 
 # ------------ print / format ------------
 def printRange(emu, startAddress, endAddress):
@@ -28,17 +29,36 @@ def printByteList(bytes):
     print()
     return
 
+def printError(e):
+    print(e)
+    return
+
+def printNotImplemented(opcode, lowByte = None, highByte = None):
+    print('not implemented:', end=' ')
+    printInstruction(opcode, lowByte, highByte)
+    return
+
+def printInstruction(opcode, lowByte = None, highByte = None):
+    instuction = ot.instructions[opcode]
+    print(instuction, end=' ')
+    if (lowByte):
+        print('${:02x}'.format(lowByte), end='')
+    if (highByte):
+        print('{:02x}'.format(highByte), end='')
+    print()
+    return
+
 # TODO add logic to create proper syntax
 def getAsmLine(emu, mode, opcode, arg8, arg16):
     asmLine = ''
     if (opcode):
         asmLine = asmLine + str(opcode).upper() + ' '
-    if (mode == m.IMM):
+    if (mode == MODE.IMM):
         asmLine = asmLine + '#'
-    if (mode != m.IMP):
+    if (mode != MODE.IMP):
         asmLine = asmLine + '$'
     if (arg8):
-        asmLine = asmLine + '{:02X}'.format(arg8)
+        asmLine = asmLine + '{:02x}'.format(arg8)
     if (arg16):
-        asmLine = asmLine + '{:02X}'.format(arg16)
+        asmLine = asmLine + '{:02x}'.format(arg16)
     return asmLine

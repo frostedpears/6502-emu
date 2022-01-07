@@ -1,7 +1,8 @@
 import numpy as np
 import re
-import opTable as ot
-from opTable import m
+import emulator.opTable as ot
+from emulator.opTable import MODE
+import emulator.monitor as mon
 
 def parseAsm(asmString):
     byteList = []
@@ -35,7 +36,7 @@ def asmToOpcode(string):
     rxArgs = '(?<=.{4}).*'
     argsMatch = re.search(rxArgs, string)
     if (not argsMatch):
-        mode = m.IMP
+        mode = MODE.IMP
         return getOpcode(instruction, mode, lowByte, highByte)
     argsString = argsMatch.group().replace(' ', '')
 
@@ -64,50 +65,53 @@ def asmToOpcode(string):
     if (indexedMatch):
         indexedString = indexedMatch.group()
         if (indexedString.startswith('\)')):
-            mode = m.IZY
+            mode = MODE.IZY
         elif (indexedString.endswith('\)')):
-            mode = m.IZX
+            mode = MODE.IZX
         elif (indexedString.__contains__('x')):
             if (highByte != None):
-                mode = m.ABX
+                mode = MODE.ABX
             else:
-                mode = m.ZPX
+                mode = MODE.ZPX
         elif (indexedString.__contains__('y')):
             if (highByte != None):
-                mode = m.ABY
+                mode = MODE.ABY
             else:
-                mode = m.ZPY
+                mode = MODE.ZPY
     # 2 bytes
     elif (highByte != None):
         if (argsString.endswith(')')):
-            mode = m.IND
+            mode = MODE.IND
         else:
-            mode = m.ABS
+            mode = MODE.ABS
     elif (lowByte != None):
         if (instruction in ot.relativeCodes):
-            mode = m.REL
+            mode = MODE.REL
         else:
-            mode = m.ZP
+            mode = MODE.ZP
 
     # A for implied/accumulator
     rxA = 'a'
     aMatch = re.match(rxA, argsString)
     if (aMatch):
-        mode = m.IMP
+        mode = MODE.IMP
         return getOpcode(instruction, mode, lowByte, highByte)
 
     # pound sign, for immediate
     rxImm = '#'
     immString = re.search(rxImm, argsString)
     if (immString):
-        mode = m.IMM
+        mode = MODE.IMM
 
     return getOpcode(instruction, mode, lowByte, highByte)
 
 def getOpcode(instruction, mode, lowByte, highByte):
     byteList = []
     if (instruction != None and mode != None):
-        byteList.append(np.uint8(ot.opCodes[instruction][mode]))
+        try:
+            byteList.append(np.uint8(ot.opCodes[instruction][mode]))
+        except Exception as e:
+            mon.printError(e)
         if (lowByte != None):
             byteList.append(np.uint8(lowByte))
             if (highByte != None):
