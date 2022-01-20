@@ -1,5 +1,24 @@
 import emulator.opTable as ot
 from emulator.opTable import MODE
+from blessed import Terminal
+
+class monitor():
+    def __init__(self):
+        self.term = Terminal()
+
+    # ------------ print / format ------------
+    def valueChanged(self, emu, address):
+        if (address > 0x30 and address < 0x35):
+            printRange(emu, 0x31, 0x35)
+        return
+
+    def printStep(self, emu, step):
+        print(self.term.home + self.term.clear, end='')
+        print('step: ' + str(step))
+        printRange(emu, 0x31, 0x35)
+        printRegisters(emu)
+        printFlags(emu)
+        return
 
 # ------------ print / format ------------
 def printRange(emu, startAddress, endAddress):

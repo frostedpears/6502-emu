@@ -22,7 +22,7 @@ class emu6502():
         # The pc should usually move before instructions,
         # but not before the first, or before jumps, etc
         # TODO find a more accurate way to replicate this logic
-        self.incrementPc = False
+        self.incrementPC = False
 
 # ------------------------ functions ------------------------
     # ---- assembly ----
@@ -51,7 +51,7 @@ class emu6502():
         return
 
     # ---- run ----
-    def movePcAndRun(self, address):
+    def movePCAndRun(self, address):
         self.pc = address
         self.run()
         return
@@ -60,12 +60,20 @@ class emu6502():
         while (self.keepRunning()):
             self.runInstruction()
         return
+
+    def movePC(self, address):
+        self.pc = address
+        return
+
+    def stepInto(self):
+        self.runInstruction()
+        return
     
     def runInstruction(self):
-        if (self.incrementPc):
+        if (self.incrementPC):
             self.pc += 1
         else:
-            self.incrementPc = True
+            self.incrementPC = True
         opCode = self.getByte(self.pc)
         byteLength = ot.byteLength[ot.modes[opCode]]
         status, lowByte, highByte = None, None, None
@@ -100,6 +108,18 @@ class emu6502():
             return False
         return True
 
+    def resetState(self):
+        self.a = np.uint8(0x00)     # accumulator
+        self.x = np.uint8(0x00)     # x register
+        self.y = np.uint8(0x00)     # y register
+
+        self.pc = np.uint16(0xc000) # program counter
+        self.sr = np.uint8(0x00)    # status register (flags)
+        self.sp = np.uint8(0xFF)    # stack pointer
+        
+        self.incrementPC = False
+        return
+
     # ------------ getters / setters ------------
     # ---- memory ----
     def getByte(self, lowByte, highByte = None):
@@ -115,6 +135,7 @@ class emu6502():
         else:
             address = lowByte + (highByte << 8)
         self.memory[address] = np.uint8(value)
+        #mon.valueChanged(self, address)
         return
 
     # ---- stack ----
@@ -149,8 +170,19 @@ class emu6502():
             self.updateFlagNegative(value)
             self.updateFlagZero(value)
         return
+
+    def setSP(self, value, updateFlags = False):
+        self.sp = np.uint8(value)
+        if (updateFlags):
+            self.updateFlagNegative(value)
+            self.updateFlagZero(value)
+        return
     
     # ---- flags ----
+    def setSR(self, value):
+        self.sr = np.uint8(value)
+        return
+
     def updateFlagZero(self, value):
         value = np.uint8(value)
         if (value == 0):
@@ -160,8 +192,8 @@ class emu6502():
         return
 
     def updateFlagNegative(self, value):
-        value = np.int8(value)
-        if (value < 0):
+        value = np.uint8(value)
+        if (value > 0x7f):
             self.sr = self.sr | FLAG.NEG
         else:
             self.sr = self.sr & ~FLAG.NEG
@@ -217,66 +249,55 @@ class emu6502():
         return 1
 
     def _ca(self): # dex imp NZ
-        value = self.x - 1
+        value = int(self.x) - 1
         self.setX(value, True)
         return 0
     
     def _88(self): # dey imp NZ
-        value = self.y - 1
+        value = int(self.y) - 1
         self.setY(value, True)
         return 0
-
-    # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
-    # INC --- --- $E6 $F6 --- --- --- $EE $FE --- --- ---
-    # Flags: N,Z
-    def INC(self, opcode, lowByte, highByte):
-        if (mode == MODE.ZP):
-            value = self.getByte(arg8)
-            value += 1
-            value = value & 0xFF
-            self.setByte(value, arg8)
+    
+    # ---- inc ---- NZ
+    def _e6(self, lowByte): # inc zp NZ
+        value = self.getByte(lowByte)
+        value += 1
+        self.updateFlagNegative(value)
+        self.updateFlagZero(value)
+        value = value & 0xFF
+        self.setByte(value, lowByte)
         return 0
+    
     
     def INX(self, opcode, lowByte, highByte):
         return 1
 
     def INY(self, opcode, lowByte, highByte):
         return 1
-
-    # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
-    # ASL $0A --- $06 $16 --- --- --- $0E $1E --- --- ---
-    # Flags: N,Z,C
-    def ASL(self, opcode, lowByte, highByte):
-        if (mode == MODE.IMP):
-            value = int(self.a)
-            value = value << 1
-            if (value > 0xFF):
-                self.sr = self.sr | FLAG.CAR
-            else:
-                self.sr = self.sr & ~FLAG.CAR
-            value = value & 0xFF
-            self.setRegister('a', value)
+    
+    # ---- asl ---- NZC
+    def _0a(self): # asl imp NZC
+        value = int(self.a)
+        value = value << 1
+        if (value > 0xFF):
+            self.sr = self.sr | FLAG.CAR
         else:
-            return 1
+            self.sr = self.sr & ~FLAG.CAR
+        self.setA(value, True)
         return 0
 
-    # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
-    # ROL $2A --- $26 $36 --- --- --- $2E $3E --- --- ---
-    # Flags: N,Z,C
-    def ROL(self, opcode, lowByte, highByte):
+
+    # ---- rol ---- NZC
+    def _2a(self):
         carry = self.sr & FLAG.CAR == FLAG.CAR
-        if (mode == MODE.IMP):
-            value = int(self.a)
-            value = value << 1
-            value = value + carry
-            if (value > 0xFF):
-                self.sr = self.sr | FLAG.CAR
-            else:
-                self.sr = self.sr & ~FLAG.CAR
-            value = value & 0xFF
-            self.setRegister('a', value)
+        value = int(self.a)
+        value = value << 1
+        value = value + carry
+        if (value > 0xFF):
+            self.sr = self.sr | FLAG.CAR
         else:
-            return 1
+            self.sr = self.sr & ~FLAG.CAR
+        self.setA(value, True)
         return 0
 
     def LSR(self, opcode, lowByte, highByte):
@@ -295,7 +316,6 @@ class emu6502():
 
     def _a5(self, lowByte): # lda zp NZ
         value = self.getByte(lowByte)
-        print(self.a)
         self.setA(value)
         return 0
 
@@ -311,55 +331,73 @@ class emu6502():
     def STX(self, opcode, lowByte, highByte):
         return 1
 
-    # Opc imp imm zp  zpx zpy izx izy abs abx aby ind rel
-    # LDY --- $A0 $A4 $B4 --- --- --- $AC $BC --- --- ---
-    # Flags: N,Z
-    def LDY(self, opcode, lowByte, highByte):
-        # get value based on mode
-        value = np.uint8(0x00)
-        if (mode == MODE.IMM):
-            value = arg8
-        elif (mode == MODE.ZP):
-            value = self.getByte(arg8)
-        else:
-            return 1
-
-        # store value
-        self.setRegister('y', value)
+    # ---- ldy ----
+    def _a0(self, lowByte): # ldy imm NZ
+        value = lowByte
+        self.setY(value, True)
+        return 0
+    
+    def _a4(self, lowByte): # ldy zp NZ
+        value = self.getByte(lowByte)
+        self.setY(value, True)
         return 0
 
     def STY(self, opcode, lowByte, highByte):
         return 1
 
-    def TAX(self, opcode, lowByte, highByte):
-        return 1
+    def _aa(self): # tax imp NZ
+        value = self.a
+        self.setX(value, True)
+        return 0
 
-    def TXA(self, opcode, lowByte, highByte):
-        return 1
+    def _8a(self): # txa imp NZ
+        value = self.x
+        self.setA(value, True)
+        return 0
 
-    def TAY(self, opcode, lowByte, highByte):
-        return 1
+    def _a8(self): # tay imp NZ
+        value = self.a
+        self.setY(value, True)
+        return 0
 
-    def TYA(self, opcode, lowByte, highByte):
-        return 1
+    def _98(self): # tya imp NZ
+        value = self.y
+        self.setA(value, True)
+        return 0
 
-    def TSX(self, opcode, lowByte, highByte):
-        return 1
+    def _ba(self): # tsx imp NZ
+        value = self.sp
+        self.setX(value, True)
+        return 0
 
-    def TXS(self, opcode, lowByte, highByte):
-        return 1
+    def _9a(self): # txs imp none
+        value = self.x
+        self.setSP(value, False)
+        return 0
 
-    def PLA(self, opcode, lowByte, highByte):
-        return 1
+    def _68(self): # pla imp NZ
+        value = self.pull()
+        self.setA(value, True)
+        return 0
 
-    def PHA(self, opcode, lowByte, highByte):
-        return 1
+    def _48(self): # pha imp none
+        value = self.a
+        self.push(value)
+        return 0
 
-    def PLP(self, opcode, lowByte, highByte):
-        return 1
+    def _28(self): # plp imp NVDIZC
+        value = self.pull()
+        value = value & 0b11001111
+        status = self.sr & 0b00110000
+        value = value | status
+        self.setSR(value)
+        return 0
 
-    def PHP(self, opcode, lowByte, highByte):
-        return 1
+    def _08(self): # php imp none
+        value = self.sr
+        value = value | 0b00110000
+        self.push(value)
+        return 0
 
 # ------------------- Jump/Flag commands -------------------
 
@@ -383,7 +421,7 @@ class emu6502():
 
     def _d0(self, lowByte): # bne rel none
         zero = self.sr & FLAG.ZER == FLAG.ZER
-        if (zero):
+        if (not zero):
             self.pc += np.int8(lowByte)
         return 0
 
@@ -407,7 +445,7 @@ class emu6502():
 
         address = lowByte + (highByte << 8)
         self.pc = address
-        self.incrementPc = False
+        self.incrementPC = False
         return 0
 
     def _60(self): # rts imp none
@@ -421,7 +459,7 @@ class emu6502():
     def _4c(self, lowByte, highByte): # jmp abs none
         address = lowByte + (highByte << 8)
         self.pc = address
-        self.incrementPc = False
+        self.incrementPC = False
         return 0
 
     # ---- bit ----
