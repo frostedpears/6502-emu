@@ -1,13 +1,12 @@
 class MemoryMap():
     def __init__(self, size=0xffff):        
         # registers
-        self.a = 0x00  # accumulator
-        self.x = 0x00  # x register
-        self.y = 0x00  # y register
-
+        self._a = 0x00  # accumulator
+        self._x = 0x00  # x register
+        self._y = 0x00  # y register
         self.pc = 0xc000  # program counter
         self.sr = 0x00  # status register (flags)
-        self.sp = 0xFF  # stack pointer
+        self.sp = 0xff  # stack pointer
 
         # Number of bytes. Memory map will be from: 0 to (size - 1)
         self.size = size
@@ -22,6 +21,30 @@ class MemoryMap():
         # observers / events
         activate_mem_map(self)
         self.subscribers = set()
+
+    @property
+    def a(self):
+        return self._a
+    
+    @a.setter
+    def a(self, value):
+        self._a = value & 0xff
+    
+    @property
+    def x(self):
+        return self._x
+
+    @x.setter
+    def x(self, value):
+        self._x = value & 0xff
+
+    @property
+    def y(self):
+        return self._y
+
+    @y.setter
+    def y(self, value):
+        self._y = value & 0xff
 
     def register(self, who):
         self.subscribers.add(who)
@@ -84,7 +107,7 @@ def run_instruction(mem_map):
         mem_map.increment_pc = True
     opcode = get_byte(mem_map, mem_map.pc)
     length = op_table[opcode]['len']
-    status, low_byte, high_byte = None, None, None
+    low_byte, high_byte = None, None
     if length == 1:
         try:
             op_table[opcode]['func'](mem_map)
@@ -106,13 +129,11 @@ def run_instruction(mem_map):
             op_table[opcode]['func'](mem_map, low_byte, high_byte)
         except Exception as e:
             print(e)
-    if status == 1:
-        print(f'{opcode} not implemented')
     return 0
 
 def keep_running(mem_map):
-    if (mem_map.sr & FLAG.INT == FLAG.INT or
-        mem_map.sr & FLAG.BRK == FLAG.BRK):
+    """Return true if the hardware is in a state to keep running"""
+    if (get_flag(mem_map, FLAG.INT) or get_flag(mem_map, FLAG.BRK)):
         return False
     return True
 
@@ -162,47 +183,37 @@ def pull(mem_map):
     byte = get_byte(mem_map, mem_map.sp, 0x1)
     return byte
 
-# ---- registers ----
-# TODO consider consolidating these
-def set_a(mem_map, value, update_flags = False):
-    mem_map.a = value
-    if update_flags:
-        update_flag_negative(mem_map, value)
-        update_flag_zero(mem_map, value)
-
-def set_x(mem_map, value, update_flags = False):
-    mem_map.x = value
-    if update_flags:
-        update_flag_negative(mem_map, value)
-        update_flag_zero(mem_map, value)
-
-def set_y(mem_map, value, update_flags = False):
-    mem_map.y = value
-    if update_flags:
-        update_flag_negative(mem_map, value)
-        update_flag_zero(mem_map, value)
-
-def set_sp(mem_map, value, update_flags = False):
-    mem_map.sp = value
-    if update_flags:
-        update_flag_negative(mem_map, value)
-        update_flag_zero(mem_map, value)
-
 # ---- flags ----
-def set_sr(mem_map, value):
-    mem_map.sr = value
+def get_flag(mem_map, flag):
+    """Return bool status of flag"""
+    return mem_map.sr & flag == flag
+
+def set_flag(mem_map, flag, bool_val):
+    if (bool_val):
+        mem_map.sr = mem_map.sr | flag
+    else:
+        mem_map.sr = mem_map.sr & ~flag
+
+def update_flags(mem_map, value, flag_set):
+    if FLAG.ZER in flag_set:
+        update_flag_zero(mem_map, value)
+    if FLAG.NEG in flag_set:
+        update_flag_negative(mem_map, value)
+    if FLAG.CAR in flag_set:
+        update_flag_carry(mem_map, value)
 
 def update_flag_zero(mem_map, value):
-    if value == 0:
-        mem_map.sr = mem_map.sr | FLAG.ZER
-    else:
-        mem_map.sr = mem_map.sr & ~FLAG.ZER
+    bool_val = value == 0
+    set_flag(mem_map, FLAG.ZER, bool_val)
 
 def update_flag_negative(mem_map, value):
-    if value > 0x7f:
-        mem_map.sr = mem_map.sr | FLAG.NEG
-    else:
-        mem_map.sr = mem_map.sr & ~FLAG.NEG
+    bool_val = value > 0x7f
+    set_flag(mem_map, FLAG.NEG, bool_val)
+
+def update_flag_carry(mem_map, value):
+    """Set carry flag to True, if value is > 255"""
+    bool_val = value > 0xff
+    set_flag(mem_map, FLAG.CAR, bool_val)
 
 # ------------------- utilities -------------------
 def twos_comp(value):
@@ -217,578 +228,673 @@ def twos_comp(value):
 
 # ------------ Logical and arithmetic commands -------------
 def op_69(mem_map, low_byte):
-    """adc imm | A:=A+{adr} | NVZC"""
-    carry = mem_map.sr & FLAG.CAR == FLAG.CAR
-    value = low_byte
-    sum = value + mem_map.a + carry
-    if sum > 0xff:
-        mem_map.sr = mem_map.sr | FLAG.CAR
-    set_a(mem_map, sum)
-    return 0
+    """adc imm | A:=A+{adr} | NVZC
+    TODO look into overflow flag
+    """
+    carry_in = get_flag(mem_map, FLAG.CAR)
+    value = low_byte + mem_map.a + carry_in
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER, FLAG.CAR))
+    mem_map.a = value
 
 def op_65(mem_map, low_byte):
     """adc zp | A:=A+{adr} | NVZC"""
-    carry = mem_map.sr & FLAG.CAR == FLAG.CAR
-    value = get_byte(mem_map, low_byte)
-    sum = value + mem_map.a + carry
-    if sum > 255:
-        mem_map.sr = mem_map.sr | FLAG.CAR
-    set_a(mem_map, sum)
-    return 0
+    carry_in = get_flag(mem_map, FLAG.CAR)
+    value = get_byte(mem_map, low_byte) + mem_map.a + carry_in
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER, FLAG.CAR))
+    mem_map.a = value
 
 def op_ca(mem_map):
     """dex imp | X:=X-1 | NZ"""
     value = mem_map.x - 1
-    set_x(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.x = value
 
-def op_88(mem_map): # dey imp NZ
+def op_88(mem_map):
     """dey imp | Y:=Y-1 | NZ"""
     value = mem_map.y - 1
-    set_y(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.y = value
 
 def op_e6(mem_map, low_byte): # inc zp NZ
-    value = get_byte(mem_map, low_byte)
-    value += 1
-    update_flag_negative(mem_map, value)
-    update_flag_zero(mem_map, value)
-    value = value & 0xFF
+    """inc zp | {adr}:={adr}+1 | NZ"""
+    value = get_byte(mem_map, low_byte) + 1
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
     set_byte(mem_map, value, low_byte)
-    return 0
 
-def op_0a(mem_map): # asl imp NZC
-    value = mem_map.a
-    value = value << 1
-    if value > 0xFF:
-        mem_map.sr = mem_map.sr | FLAG.CAR
-    else:
-        mem_map.sr = mem_map.sr & ~FLAG.CAR
-    set_a(mem_map, value, True)
-    return 0
+def op_0a(mem_map): #  NZC
+    """asl imp | {adr}:={adr}*2 | NZC"""
+    value = mem_map.a << 1
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER, FLAG.CAR))
+    mem_map.a = value
 
 def op_2a(mem_map):
-    carry = mem_map.sr & FLAG.CAR == FLAG.CAR
-    value = mem_map.a
-    value = value << 1
-    value = value + carry
-    if value > 0xFF:
-        mem_map.sr = mem_map.sr | FLAG.CAR
-    else:
-        mem_map.sr = mem_map.sr & ~FLAG.CAR
-    set_a(mem_map, value, True)
-    return 0
+    """rol imp | {adr}:={adr}*2+C | NZC"""
+    carry_in = get_flag(mem_map, FLAG.CAR)
+    value = (mem_map.a << 1) + carry_in
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER, FLAG.CAR))
+    mem_map.a = value
 
 # --------------------- Move commands ----------------------
 
-def op_a9(mem_map, low_byte): # lda imm NZ
+def op_a9(mem_map, low_byte):
+    """lda imm | A:={adr} | NZ"""
     value = low_byte
-    set_a(mem_map, value)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
-def op_a5(mem_map, low_byte): # lda zp NZ
+def op_a5(mem_map, low_byte):
+    """lda zp | A:={adr} | NZ"""
     value = get_byte(mem_map, low_byte)
-    set_a(mem_map, value)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
-def op_85(mem_map, low_byte): # sta zp none
+def op_85(mem_map, low_byte):
+    """sta zp | {adr}:=A | none"""
     value = mem_map.a
     set_byte(mem_map, value, low_byte)
-    return 0
 
-def op_8d(mem_map, low_byte, high_byte):  # sta abs none
+def op_8d(mem_map, low_byte, high_byte):
+    """sta abs | {adr}:=A | none"""
     value = mem_map.a
     set_byte(mem_map, value, low_byte, high_byte)
-    return 0
 
-def op_a0(mem_map, low_byte): # ldy imm NZ
+def op_a0(mem_map, low_byte):
+    """ldy imm | Y:={adr} | NZ"""
     value = low_byte
-    set_y(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.y = value
 
-def op_a4(mem_map, low_byte): # ldy zp NZ
+def op_a4(mem_map, low_byte):
+    """ldy zp | Y:={adr} | NZ"""
     value = get_byte(mem_map, low_byte)
-    set_y(mem_map, value, True)
-    return 0
+    mem_map.y = value
 
 def op_aa(mem_map):
     """tax imp | X:=A | NZ"""
     value = mem_map.a
-    set_x(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.x = value
 
 def op_8a(mem_map):
     """txa imp | A:=X | NZ"""
     value = mem_map.x
-    set_a(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
 def op_a8(mem_map):
     """tay imp | Y:=A | NZ"""
     value = mem_map.a
-    set_y(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.y = value
 
 def op_98(mem_map):
     """tya imp | A:=Y | NZ"""
     value = mem_map.y
-    set_a(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
 def op_ba(mem_map):
     """tsx imp | X:=S | NZ"""
     value = mem_map.sp
-    set_x(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.x = value
 
 def op_9a(mem_map):
     """txs imp | S:=X | none"""
-    value = mem_map.x
-    set_sp(mem_map, value, False)
-    return 0
+    mem_map.sp = mem_map.x
 
 def op_68(mem_map):
     """pla imp | A:=+(S) | NZ"""
     value = pull(mem_map)
-    set_a(mem_map, value, True)
-    return 0
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
 def op_48(mem_map):
     """pha imp | (S)-:=A | none"""
     value = mem_map.a
     push(mem_map, value)
-    return 0
 
 def op_28(mem_map):
-    """plp imp | P:=+(S) | NVDIZC | TODO update flags"""
-    value = pull(mem_map)
-    value = value & 0b11001111
-    status = mem_map.sr & 0b00110000
-    value = value | status
-    set_sr(mem_map, value)
-    return 0
+    """plp imp | P:=+(S) | NVDIZC"""
+    value = (pull(mem_map) & 0b11001111) | (mem_map.sr & 0b00110000)
+    mem_map.sr = value
 
 def op_08(mem_map):
     """php imp | (S)-:=P | none"""
-    value = mem_map.sr
-    value = value | 0b00110000
+    value = mem_map.sr | 0b00110000
     push(mem_map, value)
-    return 0
 
-# ------------------- Jump/Flag commands -------------------
+# ------------------- Jump / Flag commands -------------------
 def op_d0(mem_map, low_byte):
     """bne rel | branch on Z=0 | none"""
-    zero = mem_map.sr & FLAG.ZER == FLAG.ZER
-    if not zero:
+    zero_in = get_flag(mem_map, FLAG.ZER)
+    if not zero_in:
         mem_map.pc += twos_comp(low_byte)
-    return 0
 
 def op_00(mem_map):
     """brk imp | (S)-:=PC,P PC:=($FFFE) | B:=1 I:=1 | TODO ?"""
-    mem_map.sr = mem_map.sr | FLAG.INT
-    mem_map.sr = mem_map.sr | FLAG.BRK
-    return 0
+    set_flag(mem_map, FLAG.INT, True)
+    set_flag(mem_map, FLAG.BRK, True)
 
-def op_20(mem_map, low_byte, high_byte): # jsr abs none
+def op_20(mem_map, low_byte, high_byte):
+    """jsr abs | (S)-:=PC PC:={adr} | none"""
     return_low_byte = mem_map.pc & 0xFF
     return_high_byte = (mem_map.pc & 0xFF00) >> 8
     push(mem_map, return_high_byte)
     push(mem_map, return_low_byte)
-
     address = low_byte + (high_byte << 8)
     mem_map.pc = address
     mem_map.increment_pc = False
-    return 0
 
-def op_60(mem_map): # rts imp none
+def op_60(mem_map): #  none
+    """rts imp | PC:=+(S) | none"""
     low_byte = pull(mem_map)
     high_byte = pull(mem_map)
     address = low_byte + (high_byte << 8)
     mem_map.pc = address
-    return 0
 
-def op_4c(mem_map, low_byte, high_byte): # jmp abs none
+def op_4c(mem_map, low_byte, high_byte): #  none
+    """jmp abs | PC:={adr} | none"""
     address = low_byte + (high_byte << 8)
     mem_map.pc = address
     mem_map.increment_pc = False
-    return 0
 
-def op_24(mem_map, low_byte): # bit zp NVZ
-    return 1
+def op_24(mem_map, low_byte):
+    """bit zp | N:=b7 V:=b6 Z:=A&{adr} | NVZ"""
+    mem_map.dispatch("op_24: not implemented")
 
-def op_2c(mem_map, low_byte, high_byte): # bit abs NVZ
-    return 1
+def op_2c(mem_map, low_byte, high_byte):
+    """bit abs | N:=b7 V:=b6 Z:=A&{adr} | NVZ"""
+    mem_map.dispatch("op_2c: not implemented")
 
 def op_18(mem_map): # clc imp c=0
-    mem_map.sr = mem_map.sr & ~FLAG.CAR
-    return 0
+    """clc imp | C:=0 | C:=0"""
+    set_flag(mem_map, FLAG.CAR, False)
 
-def op_38(mem_map): # sec imp c=1
-    mem_map.sr = mem_map.sr | FLAG.CAR
-    return 0
+def op_38(mem_map):
+    """sec imp | C:=1 | C:=1"""
+    set_flag(mem_map, FLAG.CAR, True)
 
 def op_d8(mem_map): # cld imp d=0
-    mem_map.sr = mem_map.sr & ~FLAG.DEC
-    return 0
+    """cld imp | D:=0 | D:=0"""
+    set_flag(mem_map, FLAG.DEC, False)
 
 def op_f8(mem_map): # sed imp d=1
-    mem_map.sr = mem_map.sr | FLAG.DEC
-    return 0
+    """sed imp | D:=1 | D:=1"""
+    set_flag(mem_map, FLAG.DEC, True)
 
 def op_58(mem_map): # cli imp i=0
-    mem_map.sr = mem_map.sr & ~FLAG.INT
-    return 0
+    """cli imp | I:=0 | I:=0"""
+    set_flag(mem_map, FLAG.INT, False)
 
 def op_78(mem_map): # sei imp i=1
-    mem_map.sr = mem_map.sr | FLAG.INT
-    return 0
+    """sei imp | I:=1 | I:=1"""
+    set_flag(mem_map, FLAG.INT, True)
 
 def op_b8(mem_map): # clv imp v=0
-    mem_map.sr = mem_map.sr & ~FLAG.OVR
-    return 0
+    """clv imp | I:=1 | I:=1"""
+    set_flag(mem_map, FLAG.OVR, True)
 
 def op_ea(mem_map): # nop imp none
-    return 0
+    """nop imp | no effect | none"""
+    pass
 
 # ---------------- not implemented ----------------
 def op_09(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_09: not implemented")
 
 def op_05(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_05: not implemented")
 
 def op_15(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_15: not implemented")
 
 def op_01(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_01: not implemented")
 
 def op_11(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_11: not implemented")
 
 def op_0d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_0d: not implemented")
 
 def op_1d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_1d: not implemented")
 
 def op_19(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_19: not implemented")
 
-def op_29(mem_map):
-    return 1
+def op_29(mem_map, low_byte):
+    """and imm | A:=A&{adr} | NZ"""
+    value = low_byte & mem_map.a
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
-def op_25(mem_map):
-    return 1
+def op_25(mem_map, low_byte):
+    """and zp | A:=A&{adr} | NZ"""
+    value = get_byte(mem_map, low_byte) & mem_map.a
+    update_flags(mem_map, value, (FLAG.NEG, FLAG.ZER))
+    mem_map.a = value
 
 def op_35(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_35: not implemented")
 
 def op_21(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_21: not implemented")
 
 def op_31(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_31: not implemented")
 
 def op_2d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_2d: not implemented")
 
 def op_3d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_3d: not implemented")
 
 def op_39(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_39: not implemented")
 
 def op_49(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_49: not implemented")
 
 def op_45(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_45: not implemented")
 
 def op_55(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_55: not implemented")
 
 def op_41(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_41: not implemented")
 
 def op_51(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_51: not implemented")
 
 def op_4d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_4d: not implemented")
 
 def op_5d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_5d: not implemented")
 
 def op_59(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_59: not implemented")
 
 def op_75(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_75: not implemented")
 
 def op_61(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_61: not implemented")
 
 def op_71(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_71: not implemented")
 
 def op_6d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_6d: not implemented")
 
 def op_7d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_7d: not implemented")
 
 def op_79(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_79: not implemented")
 
 def op_e9(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_e9: not implemented")
 
 def op_e5(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_e5: not implemented")
 
 def op_f5(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_f5: not implemented")
 
 def op_ed(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ed: not implemented")
 
 def op_fd(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_fd: not implemented")
 
 def op_f9(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_f9: not implemented")
 
 def op_e1(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_e1: not implemented")
 
 def op_f1(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_f1: not implemented")
 
-def op_c9(mem_map):
-    return 1
+def op_c9(mem_map, low_byte):
+    """cmp imm | A-{adr} | NVC"""
+    mem_map.dispatch("op_c9: not implemented")
 
-def op_c5(mem_map):
-    return 1
+def op_c5(mem_map, low_byte):
+    """cmp zp | A-{adr} | NVC"""
+    mem_map.dispatch("op_c5: not implemented")
 
 def op_d5(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_d5: not implemented")
 
 def op_c1(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_c1: not implemented")
 
 def op_d1(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_d1: not implemented")
 
 def op_cd(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_cd: not implemented")
 
 def op_dd(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_dd: not implemented")
 
 def op_d9(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_d9: not implemented")
 
 def op_e0(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_e0: not implemented")
 
 def op_e4(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_e4: not implemented")
 
 def op_ec(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ec: not implemented")
 
 def op_c0(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_c0: not implemented")
 
 def op_c4(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_c4: not implemented")
 
 def op_cc(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_cc: not implemented")
 
 def op_c6(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_c6: not implemented")
 
 def op_d6(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_d6: not implemented")
 
 def op_ce(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ce: not implemented")
 
 def op_de(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_de: not implemented")
 
 def op_f6(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_f6: not implemented")
 
 def op_ee(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ee: not implemented")
 
 def op_fe(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_fe: not implemented")
 
 def op_e8(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_e8: not implemented")
 
 def op_c8(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_c8: not implemented")
 
 def op_06(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_06: not implemented")
 
 def op_16(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_16: not implemented")
 
 def op_0e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_0e: not implemented")
 
 def op_1e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_1e: not implemented")
 
 def op_26(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_26: not implemented")
 
 def op_36(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_36: not implemented")
 
 def op_2e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_2e: not implemented")
 
 def op_3e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_3e: not implemented")
 
 def op_4a(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_4a: not implemented")
 
 def op_46(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_46: not implemented")
 
 def op_56(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_56: not implemented")
 
 def op_4e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_4e: not implemented")
 
 def op_5e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_5e: not implemented")
 
 def op_66(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_66: not implemented")
 
 def op_76(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_76: not implemented")
 
 def op_6e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_6e: not implemented")
 
 def op_7e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_7e: not implemented")
 
 def op_6a(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_6a: not implemented")
 
 def op_b5(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_b5: not implemented")
 
 def op_a1(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_a1: not implemented")
 
 def op_b1(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_b1: not implemented")
 
 def op_ad(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ad: not implemented")
 
 def op_bd(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_bd: not implemented")
 
 def op_b9(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_b9: not implemented")
 
 def op_95(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_95: not implemented")
 
 def op_9d(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_9d: not implemented")
 
 def op_99(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_99: not implemented")
 
 def op_81(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_81: not implemented")
 
 def op_91(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_91: not implemented")
 
-def op_a2(mem_map):
-    return 1
+def op_a2(mem_map, low_byte):
+    """ldz imm | X:={adr} | NZ"""
+    mem_map.dispatch("op_a2: not implemented")
 
 def op_a6(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_a6: not implemented")
 
 def op_b6(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_b6: not implemented")
 
 def op_ae(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ae: not implemented")
 
 def op_be(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_be: not implemented")
 
 def op_86(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_86: not implemented")
 
 def op_96(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_96: not implemented")
 
 def op_8e(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_8e: not implemented")
 
 def op_b4(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_b4: not implemented")
 
 def op_ac(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_ac: not implemented")
 
 def op_bc(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_bc: not implemented")
 
 def op_84(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_84: not implemented")
 
 def op_94(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_94: not implemented")
 
 def op_8c(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_8c: not implemented")
 
 def op_10(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_10: not implemented")
 
 def op_30(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_30: not implemented")
 
 def op_50(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_50: not implemented")
 
 def op_70(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_70: not implemented")
 
 def op_90(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_90: not implemented")
 
 def op_b0(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_b0: not implemented")
 
-def op_f0(mem_map):
-    return 1
+def op_f0(mem_map, low_byte):
+    """beq rel | branch on Z=1 | none"""
+    mem_map.dispatch("op_f0: not implemented")
 
 def op_40(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_40: not implemented")
 
 def op_6c(mem_map):
-    return 1
+    """ |  | """
+    mem_map.dispatch("op_6c: not implemented")
 
 # ---------------------------------------------------------------------
 # ------------------------- lookup tables -----------------------------
