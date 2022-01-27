@@ -48,6 +48,9 @@ def hex_to_byte_list(hex_string):
 
     return byte_list
 
+def byte_list_to_hex_str(byte_list):
+    return " ".join([f"{byte:02x}" for byte in byte_list])
+
 def asm_to_byte_list(asm_string):
     """convert a string containing asm code into a list of bytes,
     which the emulator can use.
