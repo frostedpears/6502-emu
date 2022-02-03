@@ -1,6 +1,6 @@
 import emu6502 as emu
 
-class monitor():
+class Monitor():
     def subscribe(self, mem_map):
         mem_map.register(self)
         pass
@@ -27,9 +27,9 @@ def print_range(mem_map, start_address, end_address):
     column = 0
     row = 0
     for address in range(start_address, end_address):
-        print('{:02x}'.format(emu.get_byte(mem_map, address)), end=' ')
+        print('{:02x}'.format(mem_map.get_mem(address)), end=' ')
         column += 1
-        if column > 15:
+        if column > 15 and address < end_address - 16:
             column = 0
             row += 1
             print()

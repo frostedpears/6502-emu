@@ -1,4 +1,3 @@
-import imp
 import sys
 sys.path.append('../emu6502')
 
@@ -11,17 +10,17 @@ def run_all(show_details=True):
         run_test(i, show_details)
 
 def run_test(index, show_details=True):
-    mem = emu.MemoryMap(0x1000)
+    e = emu.Emu6502()
     test = get_test(index)
     result = TestResult(test)
     result.name = f"[{index}], \"{test.name}\""
 
-    emu.write_list(mem, test.prog_bytes, test.prog_start)
-    emu.run_range(mem, test.prog_start, test.prog_end)
+    e.write_list(test.prog_bytes, test.prog_start)
+    e.run_range(test.prog_start, test.prog_end)
 
-    result.mem_bytes = emu.get_range(mem, test.out_start, test.out_end)
-    result.mem_axy = [mem.a, mem.x, mem.y]
-    result.mem_flags = mem.sr
+    result.mem_bytes = e.get_range(test.out_start, test.out_end)
+    result.mem_axy = [e.x_mem['a'], e.x_mem['x'], e.x_mem['y']]
+    result.mem_flags = e.get_flags_byte()
 
     result.mem_pass = result.mem_bytes == test.out_bytes
     result.axy_pass = result.mem_axy == test.out_axy
@@ -39,7 +38,7 @@ class CTEXT:
     PASS = '\033[32mPASS\033[m'
 
 def print_result_header(result):
-    print(f"{CTEXT.PASS if result.mem_pass else CTEXT.FAIL} {result.name}")
+    print(f"{CTEXT.PASS if result.all_pass() else CTEXT.FAIL} {result.name}")
 
 def print_result_detailed(result):
     test = result.test
