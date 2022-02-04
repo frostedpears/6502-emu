@@ -1,5 +1,6 @@
+import os
 import sys
-sys.path.append('../emu6502')
+sys.path.append(f"{os.path.dirname('.')}")
 
 import emu6502 as emu
 import parse6502 as parser
